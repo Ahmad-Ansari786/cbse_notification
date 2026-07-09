@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import requests
+from bs4 import BeautifulSoup
 import firebase_admin
 from firebase_admin import credentials, firestore
 import google.generativeai as genai
@@ -27,7 +28,6 @@ if not os.path.exists(FIREBASE_SERVICE_ACCOUNT_JSON):
     print(f"❌ Error: '{FIREBASE_SERVICE_ACCOUNT_JSON}' not found!")
     sys.exit(1)
 
-# Initialize Firebase (agar pehle se initialize nahi hai)
 if not firebase_admin._apps:
     cred = credentials.Certificate(FIREBASE_SERVICE_ACCOUNT_JSON)
     firebase_admin.initialize_app(cred)
@@ -35,28 +35,53 @@ if not firebase_admin._apps:
 db = firestore.client()
 firestore_collection = db.collection("live_notices")
 
+
 # =====================================================================
-# 🤖 PRO-LEVEL GEMINI AI SUMMARY GENERATOR
+# 🛠️ HELPER FUNCTIONS
 # =====================================================================
-def generate_ai_summary(bytes_payload, mime_type, title):
-    if not GEMINI_API_KEY:
-        return "AI Summary unavailable (No API Key)"
-    
-    # Agar PDF properly download nahi hui hai (empty payload)
-    if not bytes_payload or len(bytes_payload) < 100:
-        print("❌ Error: PDF payload is empty or too small. Check your R2 URL/Permissions.")
+def get_smart_content_type(url):
+    extension = url.split('?')[0].split('.')[-1].lower()
+    types_map = {
+        'pdf': 'application/pdf',
+        'jpeg': 'image/jpeg',
+        'jpg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif'
+    }
+    return types_map.get(extension, 'application/octet-stream')
+
+def extract_web_text(url):
+    """Web portal se sirf text nikalne ka function"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Website se saara clean text nikalna
+            text = soup.get_text(separator=' ', strip=True)
+            return text
+        return None
+    except Exception as e:
+        print(f"⚠️ Web scraping error: {e}")
+        return None
+
+
+# =====================================================================
+# 🤖 GEMINI AI SUMMARY GENERATOR
+# =====================================================================
+def generate_ai_summary(payload, mime_type, title):
+    if not payload:
         return "Summary generation failed due to invalid document."
         
     try:
         model = genai.GenerativeModel('gemini-3.1-flash-lite')
         
-        # Professional Prompt Engineering
         prompt = (
             f"Notice Title: '{title}'\n\n"
-            "You are an expert administrative assistant for the CBSE Board. "
-            "Read the attached official document carefully and extract the core information. "
-            "Provide a highly professional, structured summary in Hindi (Devanagari script). "
-            "Use formal and respectful language. Do not add any extra conversational text.\n\n"
+            "Read the attached document or webpage content carefully and extract the core information. "
+            "Provide a structured summary in Hindi (Devanagari script).\n\n"
             "Format your response EXACTLY like this:\n\n"
             "📌 **मुख्य विषय (Main Subject):** [Provide a 1-line crisp subject]\n"
             "📅 **महत्वपूर्ण तिथियां (Key Dates):** [Extract any deadlines or event dates. If none, write 'कोई विशेष तिथि नहीं']\n"
@@ -66,19 +91,28 @@ def generate_ai_summary(bytes_payload, mime_type, title):
             "• [Key Point 3]"
         )
         
+        # Agar file (PDF/Image) hai:
         if mime_type in ['application/pdf', 'image/jpeg', 'image/png']:
             response = model.generate_content([
                 prompt,
-                {"mime_type": mime_type, "data": bytes_payload}
+                {"mime_type": mime_type, "data": payload}
             ])
             return response.text.strip()
+            
+        # Agar Web Portal ka scraped text hai:
+        elif mime_type == 'text/plain':
+            # Text prompt banakar limit kar diya taaki API overload na ho (15,000 characters)
+            full_prompt = f"{prompt}\n\nWebpage Text Context:\n{payload[:15000]}"
+            response = model.generate_content(full_prompt)
+            return response.text.strip()
+            
         else:
             return "Document format not supported for direct AI summary."
             
     except Exception as e:
-        # Ye line exact error batayegi ki Gemini fail kyun ho raha hai
-        print(f"\n⚠️ EXTREME ERROR IN GEMINI API: {str(e)}\n")
+        print(f"\n⚠️ GEMINI API ERROR: {str(e)}\n")
         return "Summary generation failed."
+
 
 # =====================================================================
 # 🛠️ MAIN CLEANUP LOGIC
@@ -86,7 +120,6 @@ def generate_ai_summary(bytes_payload, mime_type, title):
 def fix_missing_summaries():
     print("\n🔍 Scanning database for missing or failed summaries...")
     
-    # Un documents ko fetch karo jahan summary fail hui thi aur wo PDF hain
     failed_docs = firestore_collection.where("summary", "==", "Summary generation failed.").stream()
     
     count = 0
@@ -94,30 +127,51 @@ def fix_missing_summaries():
         doc_data = doc.to_dict()
         doc_id = doc.id
         title = doc_data.get("title", "Unknown Title")
-        pdf_url = doc_data.get("serverFileUrl", "")
-        is_pdf = doc_data.get("isPdf", False)
+        file_url = doc_data.get("serverFileUrl", "")
+        is_webpage = doc_data.get("isWebpage", False)
 
-        # Webportals me AI summary nahi hoti, unhe skip karo
-        if not is_pdf or not pdf_url:
-            continue
-            
         print("-" * 50)
         print(f"🔄 Fixing: {title[:50]}...")
+
+        # 1. Agar Webportal hai: URL scrape karo aur text pass karo
+        if is_webpage or not file_url.endswith(('.pdf', '.jpg', '.jpeg', '.png', '.gif')):
+            print(f"🌐 Webportal Detected: {file_url}")
+            print("📥 Scraping webpage content...")
+            
+            web_text = extract_web_text(file_url)
+            
+            if web_text:
+                print("⏳ Throttling API (5 seconds)...")
+                time.sleep(5)
+                
+                print("🧠 Generating AI Summary from webpage text...")
+                new_summary = generate_ai_summary(web_text, 'text/plain', title)
+            else:
+                new_summary = "Portal link notice - please visit the portal for full details."
+                
+            if new_summary != "Summary generation failed." and "Summary generation failed" not in new_summary:
+                firestore_collection.document(doc_id).update({"summary": new_summary})
+                print("✅ Successfully updated in database!")
+                count += 1
+            else:
+                print("❌ Failed to generate summary for webpage.")
+            continue
+            
+        # 2. Agar File (PDF/Image) hai: Direct file download karke AI ko bhejo
+        mime_type = get_smart_content_type(file_url)
+        print(f"📥 Downloading File ({mime_type}) from R2: {file_url}")
         
         try:
-            print(f"📥 Downloading PDF from R2: {pdf_url}")
-            # R2 se directly file download kar rahe hain
-            response = requests.get(pdf_url, timeout=15)
+            response = requests.get(file_url, timeout=15)
             
             if response.status_code == 200:
                 print("⏳ Throttling API (5 seconds)...")
                 time.sleep(5)
                 
-                print("🧠 Generating New Summary...")
-                new_summary = generate_ai_summary(response.content, title)
+                print("🧠 Generating New AI Summary...")
+                new_summary = generate_ai_summary(response.content, mime_type, title)
                 
-                if new_summary != "Summary generation failed.":
-                    # Firestore me update command chalao
+                if new_summary != "Summary generation failed." and "Summary generation failed" not in new_summary:
                     firestore_collection.document(doc_id).update({
                         "summary": new_summary
                     })
