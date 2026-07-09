@@ -33,7 +33,7 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
-firestore_collection = db.collection("cbse_live_notices")
+firestore_collection = db.collection("live_notices")
 
 # =====================================================================
 # 🤖 PRO-LEVEL GEMINI AI SUMMARY GENERATOR
