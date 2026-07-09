@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import hashlib
+import time
 import json
 import requests
 from bs4 import BeautifulSoup
@@ -225,6 +226,9 @@ def run_cbse_pipeline():
                         
                     bytes_payload = file_response.content
                     content_type_header = get_smart_content_type(link_extension)
+
+                    print("⏳ Throttling AI API request to prevent overload (5 seconds pause)...")
+                    time.sleep(5)
 
                     print("🧠 Generating Google AI Summary...")
                     ai_summary_text = generate_ai_summary(bytes_payload, content_type_header, final_title)
