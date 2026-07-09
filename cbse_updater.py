@@ -54,22 +54,36 @@ r2_client = boto3.client(
 )
 
 # =====================================================================
-# 🤖 GEMINI AI SUMMARY GENERATOR
+# 🤖 PRO-LEVEL GEMINI AI SUMMARY GENERATOR
 # =====================================================================
 def generate_ai_summary(bytes_payload, mime_type, title):
     if not GEMINI_API_KEY:
         return "AI Summary unavailable (No API Key)"
+    
+    # Agar PDF properly download nahi hui hai (empty payload)
+    if not bytes_payload or len(bytes_payload) < 100:
+        print("❌ Error: PDF payload is empty or too small. Check your R2 URL/Permissions.")
+        return "Summary generation failed due to invalid document."
         
     try:
-        model = genai.GenerativeModel('gemini-3.5-flash-lite')
+        model = genai.GenerativeModel('gemini-3.1-flash-lite')
+        
+        # Professional Prompt Engineering
         prompt = (
-            f"Notice Title: '{title}'\n"
-            "Task: Please read the entire attached document thoroughly from start to finish. "
-            "Carefully analyze all the pages, extract key information such as important dates, deadlines, "
-            "rules, and the main purpose of the notice. "
-            "After reading the complete document, provide a clear, highly accurate, and easy-to-understand "
-            "4-5 line (bullet point) summary in Hindi(script also). If more important then add more lines."
+            f"Notice Title: '{title}'\n\n"
+            "You are an expert administrative assistant for the CBSE Board. "
+            "Read the attached official document carefully and extract the core information. "
+            "Provide a highly professional, structured summary in Hindi (Devanagari script). "
+            "Use formal and respectful language. Do not add any extra conversational text.\n\n"
+            "Format your response EXACTLY like this:\n\n"
+            "📌 **मुख्य विषय (Main Subject):** [Provide a 1-line crisp subject]\n"
+            "📅 **महत्वपूर्ण तिथियां (Key Dates):** [Extract any deadlines or event dates. If none, write 'कोई विशेष तिथि नहीं']\n"
+            "📝 **संक्षिप्त विवरण (Summary):**\n"
+            "• [Key Point 1]\n"
+            "• [Key Point 2]\n"
+            "• [Key Point 3]"
         )
+        
         if mime_type in ['application/pdf', 'image/jpeg', 'image/png']:
             response = model.generate_content([
                 prompt,
@@ -78,8 +92,10 @@ def generate_ai_summary(bytes_payload, mime_type, title):
             return response.text.strip()
         else:
             return "Document format not supported for direct AI summary."
+            
     except Exception as e:
-        print(f"⚠️ Google AI Summary Error: {e}")
+        # Ye line exact error batayegi ki Gemini fail kyun ho raha hai
+        print(f"\n⚠️ EXTREME ERROR IN GEMINI API: {str(e)}\n")
         return "Summary generation failed."
 
 # =====================================================================
