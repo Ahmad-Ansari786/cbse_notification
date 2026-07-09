@@ -120,7 +120,8 @@ def generate_ai_summary(payload, mime_type, title):
 def fix_missing_summaries():
     print("\n🔍 Scanning database for missing or failed summaries...")
     
-    failed_docs = firestore_collection.where("summary", "==", "Summary generation failed.").stream()
+# .stream() ki jagah .get() ka use karenge taaki saara data ek baar me aa jaye
+    failed_docs = firestore_collection.where("summary", "==", "Summary generation failed.").get()
     
     count = 0
     for doc in failed_docs:
