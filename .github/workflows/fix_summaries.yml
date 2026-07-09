@@ -1,0 +1,32 @@
+name: Fix Missing Summaries (Manual Run)
+
+on:
+  workflow_dispatch: # Ye GitHub Actions tab me ek manual "Run workflow" button add kar dega
+
+jobs:
+  run_cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests firebase-admin google-generativeai
+
+      - name: Create Firebase Credentials File
+        run: |
+          cat << 'EOF' > serviceAccountKey.json
+          ${{ secrets.FIREBASE_CREDENTIALS }}
+          EOF
+
+      - name: Execute Cleanup Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python fix_summaries.py
