@@ -23,7 +23,7 @@ R2_BUCKET = os.environ.get("R2_BUCKET_NAME", "").strip()
 
 # Aapka R2 Public URL (Jaise: https://pub-xxxxxxxx.r2.dev) 
 # Aap ise GitHub secrets me 'R2_PUBLIC_DOMAIN' banakar add kar sakte hain ya yahan direct likh sakte hain.
-R2_PUBLIC_DOMAIN = os.environ.get("R2_PUBLIC_DOMAIN", "https://your-r2-public-domain.com").strip()
+R2_PUBLIC_DOMAIN = os.environ.get("R2_PUBLIC_DOMAIN", "https://pub-b0949483215b42aab57e2d0e1ba984bb.r2.dev").strip()
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 if GEMINI_API_KEY:
